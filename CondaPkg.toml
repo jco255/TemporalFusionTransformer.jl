@@ -1,0 +1,6 @@
+[deps]
+numpy = ""
+
+[pip.deps]
+pytorch-forecasting = ""
+torch = ""
