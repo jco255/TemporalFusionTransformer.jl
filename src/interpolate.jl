@@ -30,11 +30,12 @@ struct TimeDistributedInterpolation
     Nout::Int
 end
 
+# interpolates along the leading dimension
 function (u::TimeDistributedInterpolation)(x)
     if ndims(x) <= 2
         return interpolate(x, u.Nout)
     elseif ndims(x) == 3
-        Nin, Ntime, Nbatch= size(x)
+        Nin, Ntime, Nbatch = size(x)
         x_flat = reshape(x, Nin, Ntime * Nbatch)
         y_flat = interpolate(x_flat, u.Nout)
         return reshape(y_flat, u.Nout, Ntime, Nbatch)

@@ -2,6 +2,8 @@ module TestResampleNorm
 
 using Test, PythonCall, Flux, TFT
 
+include("util.jl")
+
 np = pyimport("numpy")
 pt = pyimport("torch")
 pf = pyimport("pytorch_forecasting")
@@ -23,7 +25,7 @@ begin
 
     ## 2D
     x_p = pt.rand(Ntime, Nin)
-    x_j = pyconvert(Matrix,x_p.numpy())
+    x_j = pyconvert(Matrix,x_p.numpy())'
 
     y_p = rn_p.forward(x_p)
     y_j = rn_j(x_j)

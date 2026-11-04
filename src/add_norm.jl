@@ -10,8 +10,10 @@ AddNorm(Nin::Int, Nskip::Int) = AddNorm(
     LayerNorm(Nin)
 )
 
-function (u::AddNorm)(x, skip) # torch convention
-    # @assert ndims(x)==2 "x:$(size(x))"
+# AddNorm layer: adds a skip connection and applies layer normalization
+# x: input tensor
+# skip: skip connection tensor, aligned if necessary to the dimension of x
+function (u::AddNorm)(x, skip)
     Nin = size(x, 1)
     Nskip = size(skip, 1)
     if Nin != Nskip
@@ -33,5 +35,5 @@ GateAddNorm(Nin, Nhidden, Nskip, dropout) = (
         AddNorm(Nhidden, Nskip)))
 
 function (u::GateAddNorm)(xp, xs)
-    u.add_norm(u.glu(xp),xs)
+    u.add_norm(u.glu(xp), xs)
 end

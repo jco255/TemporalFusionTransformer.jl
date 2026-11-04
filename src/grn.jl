@@ -59,7 +59,7 @@ function (u::GatedResidualNetwork)(x, context=nothing, residual=nothing)
     x = u.fc1(x)
 
     if !isnothing(context)
-        context = u.context(context')'
+        context = u.context(context)
         x = x + context 
     end
 

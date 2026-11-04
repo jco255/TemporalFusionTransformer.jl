@@ -6,14 +6,14 @@ np = pyimport("numpy")
 pt = pyimport("torch")
 pf = pyimport("pytorch_forecasting")
 
-Nin = 4
-Nout = 3
-Nhidden = 5
-Nbatch  = 2
+Nin      = 4
+Nout     = 3
+Nhidden  = 5
+Nbatch   = 2
 Ncontext = 7
-DROPOUT = 0.0
 
-TOL = 1f-6
+DROPOUT  = 0.0
+TOL      = 1f-6
 
 function copyto_check!(a,b)
     @test size(a)==size(b)
@@ -25,8 +25,8 @@ ptom = v -> pyconvert(Matrix, v.detach().numpy())
 
 x_p = pt.rand(Nbatch, Nin)
 c_p = pt.rand(Nbatch, Ncontext)
-x_j = pyconvert(Matrix, x_p.numpy())
-c_j = pyconvert(Matrix, c_p.numpy())
+x_j = pyconvert(Matrix, x_p.numpy().transpose())
+c_j = pyconvert(Matrix, c_p.numpy().transpose())
 
 # without context
 grn_1p = pf.models.temporal_fusion_transformer.sub_modules.GatedResidualNetwork(Nin, Nhidden, Nout, DROPOUT)
@@ -59,7 +59,7 @@ copyto_check!(grn_1j.gate_norm.glu.nn.weight, ptom(grn_1p.gate_norm.glu.fc.weigh
 # output
 grn_1p.forward(x_p)
 grn_1j(x_j)
-@test (ptom(grn_1p.forward(x_p)) - grn_1j(x_j) .|> abs |> maximum) < TOL
+@test (ptom(grn_1p.forward(x_p)) - grn_1j(x_j)' .|> abs |> maximum) < TOL
 
 # with context
 grn_2p = pf.models.temporal_fusion_transformer.sub_modules.GatedResidualNetwork(Nin, Nhidden, Nout, DROPOUT, Ncontext)
@@ -73,6 +73,6 @@ copyto_check!(grn_2j.gate_norm.glu.nn.weight, ptom(grn_2p.gate_norm.glu.fc.weigh
 @test isnothing(grn_2j.gate_norm.add_norm.resample)
 
 # output 
-@test (ptom(grn_2p.forward(x_p, c_p)) - grn_2j(x_j, c_j) .|> abs |> maximum) < TOL
+@test (ptom(grn_2p.forward(x_p, c_p)) - grn_2j(x_j, c_j)' .|> abs |> maximum) < TOL
 
 end # module
