@@ -1,4 +1,18 @@
-    
+function interpolate(yin::AbstractVector, Nout)
+    Nin = length(yin)
+    map(1:Nout) do i
+        if i == 1
+            return first(yin)
+        elseif i == Nout
+            return last(yin)
+        end
+        xin = 1 + (i-1) * (Nin-1)/(Nout-1)
+        x0 = floor(Int, xin)
+        t = xin - x0
+        return yin[x0] + t * (yin[x0 + 1] - yin[x0])
+    end
+end    
+
 function interpolate(input::AbstractMatrix{T}, Nout) where {T}
     # simplified version of torch.nn.functional.interpolate
     # hardcoded args:
@@ -9,20 +23,12 @@ function interpolate(input::AbstractMatrix{T}, Nout) where {T}
 
     # note: torch.nn.function includes a channels dimension
     # input shape: width x batch
-    @assert ndims(input)==2
     Nin, Nbatch = size(input)
 
-    x_in  = range(1,Nin)
-    x_out = range(1,Nin, length=Nout)
-
-    y = Matrix{T}(undef, Nout, Nbatch)
-    for i in 1:Nbatch
-        y_in = @view input[:,i]
-        for j in 1:Nout
-            y[j,i] = LinearInterpolations.interpolate(x_in, y_in, x_out[j])
-        end
-    end
-    return y
+    out = [interpolate(input[:,i], Nout) for i in 1:Nbatch]
+    out = reduce(vcat, out)
+    out = reshape(out, Nout, :)
+    return out
 end
 
 # used in AddNorm and ResampleNorm

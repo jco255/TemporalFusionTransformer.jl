@@ -6,14 +6,12 @@ version = "0.1.0"
 [deps]
 CondaPkg = "992eb4ea-22a4-4c89-a5bb-47a3300528ab"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
-LinearInterpolations = "b20c7882-2490-4592-a606-fbbfe9e745e8"
 PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
 CondaPkg = "0.2.36"
 Flux = "0.16.11"
-LinearInterpolations = "0.1.4"
 PythonCall = "0.9.35"
 Test = "1.11.0"
 

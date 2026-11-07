@@ -334,7 +334,7 @@ function (self::TemporalFusionTransformer5)(x::Dict{String, Array})
         attn_input[:, max_encoder_length+1:end, :],  # query only for predictions
         attn_input, # key
         attn_input, # value
-        mask = transpose3(attention_mask)
+        mask = transpose3(attention_mask) # TODO: transpose get_attention_mask internally
     )
     println("TFT fwd attn_output1:", size(attn_output))
     println("TFT fwd attn_output_weights:", size(attn_output_weights))

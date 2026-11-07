@@ -4,6 +4,10 @@
 # 
 # when η1 >> 0 the ELU activation acts as identity
 #         << 0 the ELU activation becomes constant, making this a linear layer
+# uses:
+#   (Nin) -> (Nout) 
+#   (Nin, Nbatch) -> (Nout, Nbatch)
+#   (Nin, Ntime, Nbatch) -> (Nout, Ntime, Nbatch)
 
 struct GatedResidualNetwork
     Nin::Int
@@ -60,7 +64,7 @@ function (u::GatedResidualNetwork)(x, context=nothing, residual=nothing)
 
     if !isnothing(context)
         context = u.context(context)
-        x = x + context 
+        x = x .+ context 
     end
 
     x = Flux.elu.(x)

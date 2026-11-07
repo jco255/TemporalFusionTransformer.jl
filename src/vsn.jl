@@ -1,8 +1,9 @@
 
 struct VariableSelectionNetwork
+    names::Vector{String}
     input_sizes::Dict{String, Int}
     hidden_size::Int
-    input_embedding_flags::Union{Nothing, Dict{String, Bool}}
+    input_embedding_flags::Dict{String, Bool}
     dropout::Float32
     context_size::Union{Nothing, Int}
     single_variable_grns::Dict{String, TFT.GatedResidualNetwork}
@@ -16,7 +17,7 @@ function VariableSelectionNetwork(
     input_sizes::Dict{String,Int},
     hidden_size::Int;
     input_embedding_flags::Dict{String, Bool} = Dict{String, Bool}(),
-    dropout::Float32 = 0.1,
+    dropout::Float32 = 0.1f0,
     context_size::Union{Nothing,Int} = nothing,
     single_variable_grns_arg::Dict{String, TFT.GatedResidualNetwork} = Dict{String, TFT.GatedResidualNetwork}(),
     prescalers::Dict{String, Dense} = Dict{String, Dense}(),
@@ -59,9 +60,10 @@ function VariableSelectionNetwork(
     end
 
     return VariableSelectionNetwork(
+        collect(keys(input_sizes)),
         input_sizes,
         hidden_size,
-        isnothing(input_embedding_flags) ? nothing : deepcopy(input_embedding_flags),
+        deepcopy(input_embedding_flags),
         dropout,
         context_size,
         single_variable_grns,
@@ -73,40 +75,36 @@ end
 
 function (self::VariableSelectionNetwork)(x::Dict, context::Union{Nothing, Array} = nothing)
     # input size is 1 x encoder_len x batch
+    get_var = name -> begin
+        variable_embedding = x[name]
+        if haskey(self.prescalers, name)
+            variable_embedding = self.prescalers[name](variable_embedding)
+        end
+        var_output = self.single_variable_grns[name](variable_embedding)
+        variable_embedding => var_output
+    end
 
     if length(self.input_sizes) > 1
         # transform single variables
-        var_outputs   = Array{Float32}[]
-        weight_inputs = Array{Float32}[]
-        for name in keys(self.input_sizes)
-            # select embedding belonging to a single input
-            variable_embedding = x[name]
-            println("VSN embedding:$(size(variable_embedding))") # (1, 7, 2)
-            if haskey(self.prescalers, name)
-                variable_embedding = self.prescalers[name](variable_embedding)
-                println("VSN embedding:$(size(variable_embedding))") # (4, 7, 2)
-            end
-            var_output = self.single_variable_grns[name](variable_embedding)
-            println("VSN $name var_output:", size(var_output)) # (5, 7, 2)
-            push!(weight_inputs, variable_embedding)
-            push!(var_outputs, var_output)
-        end
+        var_out_and_weight_in = [get_var(name) for name in self.names]
+        weight_inputs = [first(pair) for pair in var_out_and_weight_in]
+        var_outputs   = [last(pair)  for pair in var_out_and_weight_in]
 
         var_outputs = stack(var_outputs, dims=1)
-        println("VSN var_outputs:", size(var_outputs)) # (2, 5, 7, 2)
+        println("VSN var_outputs:", size(var_outputs)) # (3, 5, 7, 2)    python: (Nbatch, Nencoder, Nhidden, Nvariables)
 
         # calculate variable weights
         flat_embedding = cat(weight_inputs..., dims=1)
-        println("VSN flat_embedding:", size(flat_embedding)) # (8, 7, 2)
+        println("VSN flat_embedding:", size(flat_embedding)) # (3*4, 7, 2)
         sparse_weights = self.flattened_grn(flat_embedding, context)
-        a = size(sparse_weights)
+        a = size(sparse_weights)                                        # (3, 7, 2)
         sparse_weights = reshape(softmax(sparse_weights), a[1], 1, a[2], a[3])
-        println("VSN sparse_weights from $a to ", size(sparse_weights)) # (2, 1, 7, 2)
+        println("VSN sparse_weights from $a to ", size(sparse_weights)) # (3, 1, 7, 2)  (Nvars, 1, Nencoder, Nbatch)
 
         outputs = var_outputs .* sparse_weights
-        a = size(outputs)
+        a = size(outputs)                                  # (3, 5, 7, 2)    (Nvars, Nhidden, Nencoder, Nbatch)
         outputs = dropdims(sum(outputs, dims=1), dims=1)
-        println("VSN outputs from $a to ", size(outputs))
+        println("VSN outputs from $a to ", size(outputs))  # (5, 7, 2)   (Nhidden, Nencoder, Nbatch)
 
     elseif length(self.input_sizes) == 1
         # for one input, do not perform variable selection but just encoding
@@ -116,21 +114,22 @@ function (self::VariableSelectionNetwork)(x::Dict, context::Union{Nothing, Array
             a = size(variable_embedding)
             variable_embedding = self.prescalers[name](variable_embedding)
             b = size(variable_embedding)
-            println("VSN transforming $a to $b")
+            println("VSN transforming $a to $b") # (1, 7, 2) -> (4, 7, 2) aka (Nin, Nencoder, Nbatch)
         end
         outputs = self.single_variable_grns[name](variable_embedding)
+        println("VSN outputs: $(size(outputs))") # (5, 7, 2)  aka  (Nhidden, Nencoder, Nbatch)
         # fast forward if only one variable
-        if ndims(outputs) == 3  # -> batch size, time, hidden size, n_variables
-            sparse_weights = ones(size(outputs, 1), size(outputs, 2), 1, 1, ) 
-        else  # ndim == 2 -> batch size, hidden size, n_variables
-            sparse_weights = ones(size(outputs, 1), 1, 1 )
+        if ndims(outputs) == 3  # -> Nvars, Nhidden, Nencoder, Nbatch
+            sparse_weights = ones(1, size(outputs, 1), size(outputs, 2), size(outputs, 3)) 
+        else  # ndim == 2 -> hidden size, n_variables, Nbatch
+            sparse_weights = ones(1, size(outputs, 1), size(outputs, 2))
         end
     else  # for no input
         outputs = zeros(size(context)...)
-        if ndims(outputs) == 3  # -> batch size, time, hidden size, n_variables
-            sparse_weights = zeros(outputs.size(0), outputs.size(1), 1, 0)
-        else  # ndims == 2 -> batch size, hidden size, n_variables
-            sparse_weights = zeros(outputs.size(0), 1, 0)
+        if ndims(outputs) == 3  # -> Nvars, Nhidden, Nencoder, Nbatch
+            sparse_weights = zeros(0, size(outputs, 1), size(outputs, 2), size(outputs, 3))
+        else  # ndims == 2 -> Nvars, Nhidden, Nencoder
+            sparse_weights = zeros(0, size(outputs, 1), size(outputs, 2))
         end
     end
     return outputs, sparse_weights

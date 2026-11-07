@@ -12,27 +12,22 @@ function glu(x::AbstractVector)
     map((a,b)->a * sigmoid(b), a, b)
 end
 
-# TODO: check if this mutation is allowed by autodiff
 function glu(x::AbstractMatrix)
     n,m = size(x)
     @assert n % 2 == 0 "glu requires even lengths"
     n2 = div(n,2)
-    y  = Matrix{eltype(x)}(undef,n2,m)
-    for i in 1:m
-        y[:,i] = glu(@view x[:,i])
-    end
+    out = [glu(@view x[:,i]) for i in 1:m]
+    out = reduce(vcat, out)
+    y = reshape(out, n2, m)
+
     return y
 end
 
-# TODO: check if this is allowed by autodiff
 function glu(x::AbstractArray)
     Nin,Ntime,Nbatch = size(x)
     x_flat = reshape(x, Nin, Ntime * Nbatch)
-    out = Float32[]
-    for i in 1:Ntime * Nbatch
-        x_i = @view x_flat[:,i]
-        append!(out, glu(x_i))
-    end
+    out = [glu(@view x_flat[:,i]) for i in 1:Ntime * Nbatch ]
+    out = reduce(vcat, out)
     reshape(out, div(Nin,2), Ntime, Nbatch)
 end
 
