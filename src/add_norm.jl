@@ -6,7 +6,7 @@ end
 
 AddNorm(Nin::Int) = AddNorm(Nin, Nin)
 AddNorm(Nin::Int, Nskip::Int) = AddNorm(
-    Nin==Nskip ? nothing : TimeDistributedInterpolation(Nin),
+    Nin==Nskip ? nothing : TimeDistributedInterpolation(Nin, Nin),
     LayerNorm(Nin)
 )
 
@@ -16,6 +16,7 @@ AddNorm(Nin::Int, Nskip::Int) = AddNorm(
 function (u::AddNorm)(x, skip)
     Nin = size(x, 1)
     Nskip = size(skip, 1)
+    @assert Nin == Nskip "if these are different pass a diff size into TimeDistrInterp"
     if Nin != Nskip
         skip = u.resample(skip)
     end

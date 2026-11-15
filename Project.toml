@@ -5,13 +5,17 @@ version = "0.1.0"
 
 [deps]
 CondaPkg = "992eb4ea-22a4-4c89-a5bb-47a3300528ab"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
+MLUtils = "f1d291b0-491e-4a28-83b9-f70985020b54"
 PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
 CondaPkg = "0.2.36"
+DataFrames = "1.8.3"
 Flux = "0.16.11"
+MLUtils = "0.4.15"
 PythonCall = "0.9.35"
 Test = "1.11.0"
 

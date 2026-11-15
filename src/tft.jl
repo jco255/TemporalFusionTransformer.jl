@@ -11,6 +11,8 @@ loss : MultiHorizonMetric, default=QuantileLoss()
     loss function taking prediction and targets
 attention_head_size : int, default=4
     number of attention heads (4 is a good default)
+encoder_length : int, default=10
+decoder_length : int, default=1
 static_reals: names of static continuous variables
 static_categoricals: names of static categorical variables
 time_varying_categoricals_encoder: names of categorical variables for encoder
@@ -27,8 +29,12 @@ embedding_paddings: list of indices for embeddings which transform the zero's em
 embedding_labels: dictionary mapping (string) indices to list of categorical labels
 learning_rate: learning rate
 """ 
-struct TemporalFusionTransformer5
+struct TemporalFusionTransformer7
     hidden_size::Int
+    encoder_length::Int
+    decoder_length::Int
+    target::String
+    time_index::String
     static_reals::Vector{String}
     static_categoricals::Vector{String}
     time_varying_categoricals_encoder::Vector{String}
@@ -65,20 +71,25 @@ function TemporalFusionTransformer(;
         output_size::Int = 7,
         loss::Function = Flux.Losses.mae,
         attention_head_size::Int = 4,
+        history_length::Int = 10,
+        predict_length::Int = 1,
+        target::String = "y",
+        time_index::String = "time",
         static_reals::Vector{String} = Vector{String}(),
         static_categoricals::Vector{String} = Vector{String}(),
         time_varying_categoricals_encoder::Vector{String} = Vector{String}(),
         time_varying_categoricals_decoder::Vector{String} = Vector{String}(),
-        time_varying_reals_encoder::Vector{String} = Vector{String}(),
-        time_varying_reals_decoder::Vector{String} = Vector{String}(),
-        x_reals::Vector{String} = Vector{String}(),
-        x_categoricals::Vector{String} = Vector{String}(),
+        time_varying_known_reals::Vector{String} = Vector{String}(),
+        time_varying_unknown_reals::Vector{String} = Vector{String}(),
         hidden_continuous_size::Int = 8,
         embedding_sizes::Dict{String, Pair{Int, Int}} = Dict{String, Pair{Int, Int}}(),
         embedding_paddings::Vector{String} = Vector{String}(),
         embedding_labels::Dict{String, Array} = Dict{String, Array}(),
         learning_rate::Float32 = 1f-3,
     )
+
+    x_reals = vcat(time_varying_known_reals, time_varying_unknown_reals)
+    x_categoricals = vcat(time_varying_categoricals_encoder, time_varying_categoricals_decoder)
 
     # continuous variable processing
     prescalers = Dict{String, Dense}(name => Dense(1, hidden_continuous_size) for name in x_reals)
@@ -96,6 +107,9 @@ function TemporalFusionTransformer(;
             dropout = dropout,
             prescalers = prescalers,
         )
+
+    time_varying_reals_encoder = vcat(time_varying_known_reals, time_varying_unknown_reals)
+    time_varying_reals_decoder = time_varying_known_reals
 
     # variable selection: encoder and decoder
     encoder_input_sizes = Dict{String, Int}(name => embeddings_sizes[name] for name in time_varying_categoricals_encoder)
@@ -153,8 +167,12 @@ function TemporalFusionTransformer(;
 
     output_layer = Dense(hidden_size, output_size)
 
-    return TemporalFusionTransformer5(
+    return TemporalFusionTransformer7(
         hidden_size,
+        history_length,
+        predict_length,
+        target,
+        time_index,
         static_reals,
         static_categoricals,
         time_varying_categoricals_encoder,
@@ -191,67 +209,25 @@ end
 input dimensions: variables x time x n_samples
 """
 
-macro showvar(var)
-    svar = string(var)
-    return quote
-        println("name is $($svar) size is ", size($var))
-    end
-end
-
-# delme
-function transpose3(x)
-    @assert ndims(x)==3
-    l,m,n = size(x)
-    [x[i,j,k] for k in 1:n, j in 1:m, i in 1:l]
-end
-
-function create_mask(size, lengths)
-    (1:size)' .> lengths
-end
-
 # Returns causal mask to apply for self-attention layer.
 # Note: currently only causal attention is supported, but this can be extended to allow for non-causal attention.
 #   There is value in attending to future forecasts if they are made with knowledge currently available
 #   one possibility is here to use a second attention layer for future attention (assuming different effects
 #   matter in the future than the past) or alternatively using the same layer but allowing forward attention -
 #   i.e. only masking out non-available data and self
-function get_attention_mask(encoder_lengths, decoder_lengths)
-    @assert length(encoder_lengths) == length(decoder_lengths)
-    Nbatch = length(encoder_lengths)
-    decoder_length = maximum(decoder_lengths)
-
-    # indices to which is attended
-    attend_step = collect(1:decoder_length)
-    # indices for which is predicted
-    predict_step = collect(1:decoder_length)
-    # do not attend to steps to self or after prediction
-
-    decoder_mask = attend_step' .>= predict_step
-    decoder_mask = reshape(decoder_mask, 1, decoder_length, decoder_length)
-    decoder_mask = repeat(decoder_mask, Nbatch, 1, 1)
-
-    encoder_mask = create_mask(maximum(encoder_lengths), encoder_lengths)
-    encoder_mask = reshape(encoder_mask, size(encoder_mask, 1), 1, size(encoder_mask, 2))
-    encoder_mask = repeat(encoder_mask, 1, decoder_length, 1)
-
-    cat(encoder_mask, decoder_mask, dims=3)
+function get_attention_mask(encoder_length, decoder_length)
+    vcat(trues(encoder_length, decoder_length),
+         make_causal_mask(zeros(Float32, 0, decoder_length)))
 end
 
-function (self::TemporalFusionTransformer5)(x::Dict{String, Array})
-    encoder_lengths = x["encoder_lengths"]::Vector{Int}
-    decoder_lengths = x["decoder_lengths"]::Vector{Int}
-    # concatenate in time dimension
-    x_cat  = cat(x["encoder_cat" ]::Array{Int    , 3}, x["decoder_cat"] ::Array{Int    , 3}, dims=2)
-    x_cont = cat(x["encoder_cont"]::Array{Float32, 3}, x["decoder_cont"]::Array{Float32, 3}, dims=2)
+function (self::TemporalFusionTransformer7)(x::Dict)
+    timesteps = size(x["x_cont"], 1)  # encode + decode length
+    Nbatch = ndims(x["x_cat"]) == 3 ? size(x["x_cat"], 3) : 1
 
-    timesteps = size(x_cont, 2)  # encode + decode length
-    max_encoder_length = maximum(encoder_lengths) # 7
-    println("TFT forward max_encoder_length:$max_encoder_length")
-
-    input_vectors = Dict{String, Array{Float32,3}}() # Nin x Ntime x Nbatch
+    input_vectors = Dict{String, Array{Float32,3}}() # Ntime x Nin x Nbatch
     # TODO self.input_embeddings(x_cat)
     for (idx,name) in enumerate(self.x_reals)
-        input_vectors[name] = x_cont[[idx],:,:]
+        input_vectors[name] = x["x_cont"][:,[idx],:]
     end
 
     # Embedding and variable selection
@@ -264,24 +240,24 @@ function (self::TemporalFusionTransformer5)(x::Dict{String, Array})
         println("TFT static_embedding from $a to ", size(static_embedding)) # (8, 2)
         println("TFT static_sparse_weights:", size(static_sparse_weights))
     else
-        static_embedding = zeros(Float32, self.hidden_size, size(x_cont, 3),)
-        static_sparse_weights = zeros(Float32, size(x_cont, 3), 0)
+        static_embedding = zeros(Float32, self.hidden_size, size(x["x_cont"], 3),)
+        static_sparse_weights = zeros(Float32, size(x["x_cont"], 3), 0)
         println("TFT zeroing static, embedding:", size(static_embedding))
     end
 
     context = self.static_context_variable_selection(static_embedding) #(8, 2)  aka  (Nhidden, Nbatch)
-    static_context_variable_selection = reshape(context, self.hidden_size, 1, size(x_cont, 3)) # (8, 1, 2)  aka  (Nhidden, Ntime=1, Nbatch)
+    static_context_variable_selection = reshape(context, self.hidden_size, 1, size(x["x_cont"], 3)) # (8, 1, 2)  aka  (Nhidden, Ntime=1, Nbatch)
     println("TFT forward static_context_variable_selection:", size(static_context_variable_selection)) # 8, 1, 2
 
     encoder_variables = vcat(self.time_varying_categoricals_encoder, self.time_varying_reals_encoder)
     decoder_variables = vcat(self.time_varying_categoricals_decoder, self.time_varying_reals_decoder)
 
-    embeddings_varying_encoder = Dict(name => input_vectors[name][:,1:max_encoder_length,:] for name in encoder_variables)
+    embeddings_varying_encoder = Dict(name => reshape(input_vectors[name][1:self.encoder_length,:,:], 1, :, Nbatch) for name in encoder_variables)
     println("TFT forward embeddings_varying_encoder1:", size(embeddings_varying_encoder[encoder_variables[1]])) # 1, 7, 2
     embeddings_varying_encoder, encoder_sparse_weights =
         self.encoder_variable_selection(embeddings_varying_encoder, static_context_variable_selection)
 
-    embeddings_varying_decoder = Dict(name => input_vectors[name][:,max_encoder_length+1:end,:] for name in decoder_variables)
+    embeddings_varying_decoder = Dict(name => reshape(input_vectors[name][self.encoder_length+1:end,:,:], 1, :, Nbatch) for name in decoder_variables)
     embeddings_varying_decoder, decoder_sparse_weights =
         self.decoder_variable_selection(embeddings_varying_decoder, static_context_variable_selection)
 
@@ -324,23 +300,25 @@ function (self::TemporalFusionTransformer5)(x::Dict{String, Array})
     static_context_enrichment = reshape(static_context_enrichment, self.hidden_size, 1, size(static_context_enrichment, 2))
     attn_input = self.static_enrichment(lstm_output, static_context_enrichment) # GRN
     println("TFT forward static_context_enrichment:", size(static_context_enrichment))
-    println("TFT forward attn_input:", size(attn_input)) # 8, 10, 2
+    println("TFT forward attn_input:", size(attn_input)) # 8, 30, 2
 
     # attention 
     # TODO: make interpretable, i.e. share value weights across each head
-    attention_mask = get_attention_mask(encoder_lengths, decoder_lengths)
-    println("TFT forward attention_mask:", size(attention_mask)) # (2, 3, 10)  aka  Nbatch, Ndecoder, Ntime
-    attn_output, attn_output_weights = self.multihead_attn(
-        attn_input[:, max_encoder_length+1:end, :],  # query only for predictions
+    attention_mask = get_attention_mask(self.encoder_length, self.decoder_length) # (30,10)
+    println("TFT forward attention_mask:", size(attention_mask)) 
+    # The inputs have size (features, len, batch_size), while bias and mask are broadcastable
+    # to the size (kv_len, q_len, nheads, batch_size) of the returned attention scores.
+    attn_output, attn_output_weights = self.multihead_attn( # q_in, k_in, v_in
+        attn_input[:, self.encoder_length+1:end, :],  # query only for predictions
         attn_input, # key
         attn_input, # value
-        mask = transpose3(attention_mask) # TODO: transpose get_attention_mask internally
+        mask = attention_mask,
     )
     println("TFT fwd attn_output1:", size(attn_output))
     println("TFT fwd attn_output_weights:", size(attn_output_weights))
 
     # skip connection over attention
-    attn_output = self.post_attn_gate_norm(attn_output, attn_input[:, max_encoder_length+1:end,:])
+    attn_output = self.post_attn_gate_norm(attn_output, attn_input[:, self.encoder_length+1:end,:])
     println("TFT fwd attn_output2:", size(attn_output))
 
     output = self.pos_wise_ff(attn_output)
@@ -349,7 +327,7 @@ function (self::TemporalFusionTransformer5)(x::Dict{String, Array})
     # skip connection over temporal fusion decoder (not LSTM decoder
     # despite the LSTM output contains
     # a skip from the variable selection network)
-    output = self.pre_output_gate_norm(output, lstm_output[:, max_encoder_length+1:end, :])
+    output = self.pre_output_gate_norm(output, lstm_output[:, self.encoder_length+1:end, :])
     println("TFT fwd output2:", size(output))
 
     output = self.output_layer(output)
@@ -358,8 +336,8 @@ function (self::TemporalFusionTransformer5)(x::Dict{String, Array})
     """
     return self.to_network_output(
         prediction=self.transform_output(output, target_scale=x["target_scale"]),
-        encoder_attention=attn_output_weights[..., :max_encoder_length],
-        decoder_attention=attn_output_weights[..., max_encoder_length:],
+        encoder_attention=attn_output_weights[..., :self.encoder_length],
+        decoder_attention=attn_output_weights[..., self.encoder_length:],
         static_variables=static_sparse_weights,
         encoder_variables=encoder_sparse_weights,
         decoder_variables=decoder_sparse_weights,

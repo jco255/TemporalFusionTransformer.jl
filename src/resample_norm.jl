@@ -10,7 +10,7 @@ end
 Flux.@layer ResampleNorm trainable=(mask,norm)
 
 ResampleNorm(Nin,Nout) = ResampleNorm(
-    Nin, Nout, TimeDistributedInterpolation(Nout), zeros(Nout), LayerNorm(Nout))
+    Nin, Nout, TimeDistributedInterpolation(Nin, Nout), zeros(Nout), LayerNorm(Nout))
 
 # x: (Nin, Ntime)  or  (Nin, Ntime, Nbatch)
 # resamples Nin to match Nout, then masks and applies LayerNorm
@@ -18,11 +18,13 @@ function (u::ResampleNorm)(x)
     @assert size(x,1) == u.Nin
     if u.Nin != u.Nout
         if ndims(x)<=2
+            println("ResampleNorm about to interp Nin:$(u.Nin) Nout:$(u.Nout) x:$(size(x)) ndims:$(ndims(x))")
             x = u.resample(x)
         else
             @assert ndims(x)==3
             Nin, Ntime, Nbatch = size(x)
             x_flat = reshape(x, Nin, Ntime*Nbatch)
+            println("ResampleNorm about to interp Nin:$(u.Nin) Nout:$(u.Nout) x:$(size(x)) x_flat:$(size(x_flat)) interp:$(size(u.resample.matrix))")
             x = u.resample(x_flat)
             x = reshape(x, :, Ntime, Nbatch)
         end
