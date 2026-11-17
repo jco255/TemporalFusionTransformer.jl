@@ -38,6 +38,8 @@ struct TimeDistributedInterpolation
     matrix::Matrix{Float32}
 end
 
+Flux.@layer TimeDistributedInterpolation trainable=()
+
 function TimeDistributedInterpolation(Nin,Nout)
     matrix = zeros(Float32,Nin,Nout)
     for i in 1:Nout
@@ -59,8 +61,6 @@ end
 # interpolates along the leading dimension
 function (u::TimeDistributedInterpolation)(x)
     if ndims(x) <= 2
-        # return interpolate(x, u.Nout)
-        # out = interpolate(x, u.Nout)
         out = u.matrix * x
         println("u:$(u.Nout) $(ndims(x)) size:$(size(x)) out:$(size(out))")
         return out
@@ -68,11 +68,10 @@ function (u::TimeDistributedInterpolation)(x)
     elseif ndims(x) == 3
         Nin, Ntime, Nbatch = size(x)
         x_flat = reshape(x, Nin, Ntime * Nbatch)
-        # y_flat = interpolate(x_flat, u.Nout)
-        y_flat = x_flat * u.matrix
-        # return reshape(y_flat, u.Nout, Ntime, Nbatch)
+        y_flat = u.matrix * x_flat
+        println("TDI x:$(size(x)) x_flat:$(size(x_flat)) y_flat:$(size(y_flat)) matrix:$(size(u.matrix))")
         out = reshape(y_flat, u.Nout, Ntime, Nbatch)
-        println("u:$(u.Nout) $(ndims(x)) size:$(size(x)) out:$(size(out))")
+        println("TDI u:$(u.Nout) $(ndims(x)) size:$(size(x)) out:$(size(out))")
         return out
     end
     error("cant handle shape x:$(size(x))")

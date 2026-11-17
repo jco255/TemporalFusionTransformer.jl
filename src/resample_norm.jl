@@ -18,8 +18,9 @@ function (u::ResampleNorm)(x)
     @assert size(x,1) == u.Nin
     if u.Nin != u.Nout
         if ndims(x)<=2
-            println("ResampleNorm about to interp Nin:$(u.Nin) Nout:$(u.Nout) x:$(size(x)) ndims:$(ndims(x))")
+            a = size(x)
             x = u.resample(x)
+            println("ResampleNorm about to interp Nin:$(u.Nin) Nout:$(u.Nout) x:$a -> $(size(x)) ndims:$(ndims(x))")
         else
             @assert ndims(x)==3
             Nin, Ntime, Nbatch = size(x)

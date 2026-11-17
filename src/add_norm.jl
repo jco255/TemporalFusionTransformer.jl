@@ -6,7 +6,7 @@ end
 
 AddNorm(Nin::Int) = AddNorm(Nin, Nin)
 AddNorm(Nin::Int, Nskip::Int) = AddNorm(
-    Nin==Nskip ? nothing : TimeDistributedInterpolation(Nin, Nin),
+    Nin==Nskip ? nothing : TimeDistributedInterpolation(Nskip, Nin),
     LayerNorm(Nin)
 )
 
@@ -16,7 +16,6 @@ AddNorm(Nin::Int, Nskip::Int) = AddNorm(
 function (u::AddNorm)(x, skip)
     Nin = size(x, 1)
     Nskip = size(skip, 1)
-    @assert Nin == Nskip "if these are different pass a diff size into TimeDistrInterp"
     if Nin != Nskip
         skip = u.resample(skip)
     end
@@ -30,7 +29,7 @@ struct GateAddNorm
     add_norm::AddNorm
 end
 
-GateAddNorm(Nin, Nhidden, Nskip, dropout) = (
+GateAddNorm(Nin::Int, Nhidden::Int, Nskip::Int; dropout) = (
     GateAddNorm(Nskip,
         GatedLinearUnit(Nin, Nhidden; dropout = dropout),
         AddNorm(Nhidden, Nskip)))

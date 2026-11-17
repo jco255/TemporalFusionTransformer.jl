@@ -50,7 +50,7 @@ begin
     gan_p = pf.models.temporal_fusion_transformer.sub_modules.GateAddNorm(Nin, Nhidden, Nskip)
 
     # julia model
-    gan_j = TFT.GateAddNorm(Nin, Nhidden, Nskip, 0.0)
+    gan_j = TFT.GateAddNorm(Nin, Nhidden, Nskip; dropout = 0.0)
 
     # make weights identical
     gan_p_weights = pyconvert(Array, gan_p.glu.fc.weight.detach().numpy())

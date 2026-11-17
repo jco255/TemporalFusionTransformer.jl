@@ -36,7 +36,7 @@ function GatedResidualNetwork(Nin, Nhidden, Nout; dropout = 0.1, Ncontext = noth
     @assert all(iszero, fc1.bias)
     @assert all(iszero, fc2.bias)
 
-    gate_norm = GateAddNorm(Nhidden, Nout, Nout, dropout)
+    gate_norm = GateAddNorm(Nhidden, Nout, Nout; dropout = dropout)
 
     return GatedResidualNetwork(Nin, Nhidden, Nout, dropout, Ncontext,
         resample_norm,
@@ -56,7 +56,7 @@ function (u::GatedResidualNetwork)(x, context=nothing, residual=nothing)
     end
 
     if u.Nin != u.Nout && !u.residual
-        println("Nin:$(u.Nin) Nout:$(u.Nout) context:$(isnothing(context) ? nothing : size(context)) residual:$(isnothing(residual) ? nothing : size(residual))")
+        println("GRN Nin:$(u.Nin) Nout:$(u.Nout) context:$(isnothing(context) ? nothing : size(context)) residual:$(isnothing(residual) ? nothing : size(residual))")
         residual = u.resample_norm(residual)
     end
 
